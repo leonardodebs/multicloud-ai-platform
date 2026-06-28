@@ -2,6 +2,21 @@
 
 [![CI](https://github.com/leonardodebs/multicloud-ai-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/leonardodebs/multicloud-ai-platform/actions/workflows/ci.yml)
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
+![Recharts](https://img.shields.io/badge/Recharts-22B5BF?logo=chartdotjs&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![nginx](https://img.shields.io/badge/nginx-009639?logo=nginx&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-Bedrock%20%7C%20ECS%20Fargate-232F3E?logo=amazonwebservices&logoColor=white)
+![Google Cloud](https://img.shields.io/badge/GCP-Vertex%20AI-4285F4?logo=googlecloud&logoColor=white)
+![Oracle Cloud](https://img.shields.io/badge/OCI-GenAI-F80000?logo=oracle&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-OIDC-2088FF?logo=githubactions&logoColor=white)
+![pytest](https://img.shields.io/badge/pytest-23%20tests-0A9EDC?logo=pytest&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Interface unificada que consulta **AWS Bedrock**, **OCI Generative AI** e
 **GCP Vertex AI** *simultaneamente*, com três modos de operação:
 **comparar**, **consenso** e **mais rápido**.
