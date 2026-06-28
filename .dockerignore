@@ -1,0 +1,12 @@
+# Artefatos que não devem entrar no contexto de build das imagens.
+**/.venv
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/dist
+**/.pytest_cache
+.git
+.github
+terraform
+*.md
+.env
