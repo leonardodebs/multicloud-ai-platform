@@ -1,0 +1,41 @@
+# Stack de desenvolvimento com hot reload nos dois serviços.
+#
+#   docker-compose -f docker-compose.dev.yml up
+#
+# Backend:  uvicorn --reload (recarrega ao salvar arquivos .py)
+# Frontend: vite dev server  (HMR no navegador em http://localhost:5173)
+
+services:
+  backend:
+    image: python:3.12-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./backend:/app # código montado para hot reload
+    ports:
+      - "8000:8000"
+    environment:
+      DEMO_MODE: ${DEMO_MODE:-true}
+      MAX_TOKENS: ${MAX_TOKENS:-1024}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-west-2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      OCI_COMPARTMENT_ID: ${OCI_COMPARTMENT_ID:-}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+
+  frontend:
+    image: node:20-slim
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # mantém node_modules do container (não sobrescrever)
+    ports:
+      - "5173:5173"
+    environment:
+      # O proxy do Vite encaminha /api para o backend pelo nome do serviço.
+      VITE_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend

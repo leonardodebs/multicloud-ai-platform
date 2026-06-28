@@ -1,0 +1,60 @@
+# Stack de produção local: backend FastAPI + frontend (nginx servindo a SPA e
+# atuando como reverse proxy /api → backend).
+#
+#   docker-compose up  →  http://localhost
+#
+# Funciona ponta-a-ponta SEM credenciais de cloud (modo demo). Para usar os
+# modelos reais, preencha o .env (veja .env.example) — as variáveis abaixo são
+# repassadas ao backend.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: multicloud-ai-backend
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000" # exposto para debug direto da API (opcional)
+    environment:
+      # DEMO_MODE=true força respostas sintéticas sem chamar os clouds.
+      # Remova/defina como false quando configurar credenciais reais.
+      DEMO_MODE: ${DEMO_MODE:-true}
+      MAX_TOKENS: ${MAX_TOKENS:-1024}
+      # --- AWS Bedrock ---
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-west-2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_BEDROCK_MODEL_ID: ${AWS_BEDROCK_MODEL_ID:-}
+      # --- OCI GenAI ---
+      OCI_COMPARTMENT_ID: ${OCI_COMPARTMENT_ID:-}
+      OCI_REGION: ${OCI_REGION:-}
+      OCI_MODEL_ID: ${OCI_MODEL_ID:-}
+      # --- GCP Vertex AI ---
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_LOCATION: ${GCP_LOCATION:-}
+      GCP_MODEL_ID: ${GCP_MODEL_ID:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: multicloud-ai-frontend
+    ports:
+      # Entrada pública: http://localhost (defina FRONTEND_PORT para trocar a porta).
+      - "${FRONTEND_PORT:-80}:80"
+    environment:
+      # O nginx do frontend faz proxy de /api para este host:porta.
+      BACKEND_HOST: backend
+      BACKEND_PORT: "8000"
+    depends_on:
+      - backend
+    restart: unless-stopped

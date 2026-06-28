@@ -1,0 +1,33 @@
+# Frontend React — build com node:20 e serve estático com nginx:alpine.
+
+# ---- Stage 1: build — compila o bundle de produção do Vite ---------------- #
+FROM node:20-slim AS build
+
+WORKDIR /app
+
+# Instala dependências primeiro (cache de camadas).
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+# Copia o código e gera o bundle estático em /app/dist.
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Stage 2: serve — nginx:alpine servindo os arquivos estáticos --------- #
+FROM nginx:alpine AS serve
+
+# Template do nginx: a imagem oficial roda envsubst nos arquivos de
+# /etc/nginx/templates/*.template no boot, gerando /etc/nginx/conf.d/*.conf
+# com as variáveis BACKEND_HOST/BACKEND_PORT resolvidas.
+COPY nginx/frontend.conf.template /etc/nginx/templates/default.conf.template
+
+# Valores padrão para docker-compose (sobrescritos no ECS para 127.0.0.1).
+ENV BACKEND_HOST=backend \
+    BACKEND_PORT=8000
+
+# Copia o bundle gerado para o diretório servido pelo nginx.
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

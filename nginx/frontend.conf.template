@@ -1,0 +1,35 @@
+# Config do nginx do frontend: serve a SPA e atua como reverse proxy para o
+# backend FastAPI. As variáveis ${BACKEND_HOST}/${BACKEND_PORT} são preenchidas
+# via envsubst no start do container (recurso nativo da imagem nginx oficial),
+# permitindo o MESMO build funcionar em:
+#   - docker-compose: BACKEND_HOST=backend       (nome do serviço)
+#   - ECS Fargate:    BACKEND_HOST=127.0.0.1     (mesma task, rede awsvpc)
+
+server {
+    listen 80;
+    server_name _;
+
+    # Raiz dos arquivos estáticos gerados pelo build do Vite.
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Encaminha as chamadas de API para o backend (sem o prefixo /api).
+    location /api/ {
+        proxy_pass http://${BACKEND_HOST}:${BACKEND_PORT}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 60s;
+    }
+
+    # Healthcheck do ALB: GET /health → backend /health.
+    location = /health {
+        proxy_pass http://${BACKEND_HOST}:${BACKEND_PORT}/health;
+        proxy_set_header Host $host;
+    }
+
+    # SPA fallback: qualquer rota desconhecida devolve o index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
