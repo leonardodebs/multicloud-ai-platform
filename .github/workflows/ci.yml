@@ -1,0 +1,105 @@
+name: CI
+
+# Pipeline de integração: testa backend, frontend, faz scan de CVEs e valida
+# o Terraform. Roda em push e pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Rodar testes (mock dos 3 providers, modo demo)
+        working-directory: backend
+        env:
+          DEMO_MODE: "true"
+        run: pytest -q
+
+  frontend:
+    name: Frontend (eslint + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Vitest
+        working-directory: frontend
+        run: npm test
+
+      - name: Build de produção
+        working-directory: frontend
+        run: npm run build
+
+  security:
+    name: Segurança (Trivy + Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy — scan de vulnerabilidades do filesystem
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0" # não bloqueia o build; relatório informativo
+
+      - name: Checkov — scan de IaC (Terraform)
+        uses: bridgecrewio/checkov-action@v12.3108.0
+        with:
+          directory: terraform
+          framework: terraform
+          soft_fail: true # não bloqueia; relatório informativo
+
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: terraform fmt
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+
+      - name: terraform init (sem backend)
+        working-directory: terraform
+        run: terraform init -backend=false
+
+      - name: terraform validate
+        working-directory: terraform
+        run: terraform validate

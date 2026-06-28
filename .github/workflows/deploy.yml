@@ -1,0 +1,141 @@
+name: Deploy
+
+# Deploy para AWS ECS Fargate via OIDC (sem credenciais armazenadas).
+# Constrói e publica as imagens no ECR, aplica o Terraform, espera o serviço
+# estabilizar, roda um smoke test e atualiza o README com a URL do demo.
+#
+# Roda APENAS sob demanda (workflow_dispatch) porque exige uma conta AWS já
+# provisionada (terraform apply inicial) e o secret AWS_DEPLOY_ROLE_ARN.
+# Para habilitar deploy automático a cada push, descomente o bloco `push`
+# abaixo DEPOIS de configurar a AWS e o secret.
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+# Necessário para OIDC (id-token) e para commitar a atualização do README.
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  AWS_REGION: us-west-2
+  PROJECT: multicloud-ai
+
+jobs:
+  deploy:
+    name: Build, push e deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Autenticação OIDC: assume a role criada pelo Terraform ----------- #
+      - name: Configurar credenciais AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # --- Build e push das imagens (tag = SHA do commit) ------------------- #
+      - name: Build e push do backend
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/${PROJECT}-backend:${GITHUB_SHA::7}"
+          docker build -f Dockerfile.backend -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Build e push do frontend
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/${PROJECT}-frontend:${GITHUB_SHA::7}"
+          docker build -f Dockerfile.frontend -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      # --- Terraform apply: atualiza a task definition e o serviço ECS ------ #
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform apply
+        working-directory: terraform
+        run: |
+          terraform apply -auto-approve -input=false \
+            -var="backend_image=${BACKEND_IMAGE}" \
+            -var="frontend_image=${FRONTEND_IMAGE}"
+
+      - name: Capturar outputs do Terraform
+        id: tf
+        working-directory: terraform
+        run: |
+          echo "alb_dns=$(terraform output -raw alb_dns_name)" >> "$GITHUB_OUTPUT"
+          echo "cluster=$(terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "service=$(terraform output -raw ecs_service_name)" >> "$GITHUB_OUTPUT"
+
+      # --- Espera o serviço ECS estabilizar -------------------------------- #
+      - name: Aguardar serviço ECS estável
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
+            --services "${{ steps.tf.outputs.service }}"
+
+      # --- Smoke test: /health deve reportar todos os clouds "ok" ----------- #
+      - name: Smoke test (GET /health)
+        run: |
+          URL="${{ steps.tf.outputs.alb_dns }}"
+          echo "Testando $URL/health"
+          for i in $(seq 1 10); do
+            BODY=$(curl -fsS "$URL/health" || true)
+            echo "$BODY"
+            if echo "$BODY" | grep -q '"status": *"ok"'; then
+              echo "Health OK — todos os clouds responderam."
+              exit 0
+            fi
+            echo "Tentativa $i falhou; aguardando..."
+            sleep 15
+          done
+          echo "Smoke test falhou: /health não retornou status ok"
+          exit 1
+
+      # --- Atualiza o README com a URL do demo ao vivo --------------------- #
+      - name: Atualizar README com a URL do demo
+        run: |
+          URL="${{ steps.tf.outputs.alb_dns }}"
+          # Substitui o conteúdo entre os marcadores LIVE_DEMO.
+          python - "$URL" <<'PY'
+          import re, sys
+          url = sys.argv[1]
+          with open("README.md", encoding="utf-8") as f:
+              content = f.read()
+          novo = f"<!-- LIVE_DEMO_START -->\n**🌐 Demo ao vivo:** {url}\n<!-- LIVE_DEMO_END -->"
+          content = re.sub(
+              r"<!-- LIVE_DEMO_START -->.*?<!-- LIVE_DEMO_END -->",
+              novo, content, flags=re.DOTALL,
+          )
+          with open("README.md", "w", encoding="utf-8") as f:
+              f.write(content)
+          PY
+
+      - name: Commitar README atualizado
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet README.md; then
+            git add README.md
+            git commit -m "docs: atualiza URL do demo ao vivo [skip ci]"
+            git push
+          else
+            echo "README já atualizado; nada a commitar."
+          fi
